@@ -1,5 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("clickBtn").onclick = async () => {
+    const listEl = document.getElementById("list");
+    listEl.textContent = "搜尋中...";
+
     await clickFindScrollAndShow();
   };
 });
@@ -37,13 +40,30 @@ async function clickFindScrollAndShow() {
           const el = matched[0];
           const title = el.querySelector('[class*="postTitleText_"]')?.textContent.trim() || "";
 
-          el.click();
+          // 冒泡 click 事件
+          el.dispatchEvent(new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
 
-          await delay(1000); // 等待1秒
+          // 等待直到有出現 [id*="chat-messages-"]
+          await new Promise(resolve => {
+            const checkExist = setInterval(() => {
+              if (document.querySelector('[id*="chat-messages-"]')) {
+                clearInterval(checkExist);
+                resolve();
+              }
+            }, 100);
+          });
 
-          const specialBtn = document.querySelector('[class*="button_"][class*="lookFilled_"]');
-          if (specialBtn) {
+          // 每隔 1 秒點擊一次 specialBtn，直到按鈕不再存在
+          while (true) {
+            const specialBtn = document.querySelector('[class*="button_"][class*="lookFilled_"]');
+            if (!specialBtn) break;
+
             specialBtn.click();
+            await delay(1000);
           }
 
           return title;
