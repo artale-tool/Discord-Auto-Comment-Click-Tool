@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Discord 抽留言點擊工具",
+  "version": "1.0",
+  "description": "依序點擊留言",
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://discord.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Discord 抽留言點擊工具",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  }
+}

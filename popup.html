@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <title>Discord 點擊助手</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 10px;
+      width: 320px;
+    }
+    #list {
+      margin-top: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 8px;
+      border-radius: 4px;
+    }
+    #list div {
+      margin-bottom: 8px;
+      user-select: none;
+      padding: 4px 6px;
+      border-radius: 3px;
+    }
+    button {
+      margin-top: 10px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h3>下一則留言：</h3>
+  <div id="list">尚未點擊</div>
+  <button id="clickBtn">👉 點擊下一則留言</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>
