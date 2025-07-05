@@ -59,7 +59,8 @@ async function clickFindScrollAndShow() {
 
           // 每隔 1 秒點擊一次 specialBtn，直到按鈕不再存在
           while (true) {
-            const specialBtn = document.querySelector('[class*="button_"][class*="lookFilled_"]');
+            const specialBtn = [...document.querySelectorAll('[class*="button_"][class*="lookFilled_"]')]
+              .find(btn => btn.textContent.trim() === "跳到至當前");
             if (!specialBtn) break;
 
             specialBtn.click();
