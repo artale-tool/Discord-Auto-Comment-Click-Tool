@@ -70,6 +70,86 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const messageScroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
             if (messageScroll) messageScroll.scrollTop = messageScroll.scrollHeight;
 
+            const allMessages = Array.from(document.querySelectorAll('[id*="chat-messages-"]'));
+
+            const pattern = /^(\d+)(\D+)$|^(\D+)(\d+)$/; // 數字+文字 或 文字+數字
+            const counter = {}; // { keyword: [數字, 數字, ...] }
+            const formatMap = {}; // { keyword: 'prefix' | 'suffix' }
+
+            for (let i = allMessages.length - 1; i >= 0; i--) {
+                const text = allMessages[i].querySelector('[id*="message-content-"]')?.textContent.trim();
+                if (!text) continue;
+
+                const match = text.match(pattern);
+                if (match) {
+                    let number = null;
+                    let keyword = null;
+                    let format = null;
+
+                    if (match[1] && match[2]) {
+                        number = parseInt(match[1], 10);
+                        keyword = match[2];
+                        format = 'prefix'; // 數字在前
+                    } else if (match[3] && match[4]) {
+                        keyword = match[3];
+                        number = parseInt(match[4], 10);
+                        format = 'suffix'; // 數字在後
+                    }
+
+                    if (!isNaN(number)) {
+                        if (!counter[keyword]) counter[keyword] = [];
+                        counter[keyword].push(number);
+
+                        if (!formatMap[keyword]) formatMap[keyword] = format;
+                    }
+                }
+            }
+
+            // 找出出現最多次的關鍵詞
+            let mostCommonKeyword = null;
+            let highestCount = 0;
+            for (const key in counter) {
+                if (counter[key].length > highestCount) {
+                    highestCount = counter[key].length;
+                    mostCommonKeyword = key;
+                }
+            }
+
+            if (mostCommonKeyword !== null) {
+                const maxNumber = Math.max(...counter[mostCommonKeyword]);
+                const format = formatMap[mostCommonKeyword];
+                const nextNumber = maxNumber + 1;
+
+                let nextText;
+                if (format === 'prefix') {
+                    nextText = `${nextNumber}${mostCommonKeyword}`;
+                } else {
+                    nextText = `${mostCommonKeyword}${nextNumber}`;
+                }
+
+                // 建立隱藏 textarea 複製
+                const textarea = document.createElement("textarea");
+                textarea.value = nextText;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand("copy");
+
+                    // 顯示通知
+                    chrome.runtime.sendMessage({
+                        type: "SHOW_NOTIFICATION",
+                        title: "複製完成",
+                        message: `已複製 ${nextText} 到剪貼簿`,
+                    });
+                } catch (err) {
+                    console.error("❌ 複製失敗", err);
+                }
+                document.body.removeChild(textarea);
+            } else {
+                console.warn("⚠️ 找不到符合格式的留言");
+            }
+
+
             return "✅ 點擊留言成功：" + title;
           } else {
             if (!scrollContainer) break;
@@ -79,6 +159,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
         }
 
+        // 顯示通知
+        chrome.runtime.sendMessage({
+            type: "SHOW_NOTIFICATION",
+            title: "搜尋結束",
+            message: `找不到符合條件的留言，請重新執行`,
+        });
         return "⚠️ 找不到符合條件的留言";
       }
     });
@@ -103,7 +189,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         for (const el of unread) {
           if (await checkShouldStop()) return "⛔ 已手動停止";
 
-          scroller.scrollTop = el.offsetTop; // 可加一點偏移量
+          scroller.scrollTop = el.offsetTop;
           el.querySelector('[role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
           await new Promise(resolve => {
@@ -128,9 +214,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await delay(1000);
         }
 
+        // 顯示通知
+        chrome.runtime.sendMessage({
+            type: "SHOW_NOTIFICATION",
+            title: "讀取結束",
+            message: `✅ 已讀取所有貼文`,
+        });
+
         return "✅ 已讀取所有貼文";
       }
     });
     return true;
+  } else if (msg.type === "SHOW_NOTIFICATION") {
+    const notificationId = "default-notification";
+
+    chrome.notifications.create(notificationId, {
+        type: "basic",
+        iconUrl: "icon.png",
+        title: msg.title || "通知",
+        message: msg.message || ""
+    }, () => {
+        setTimeout(() => {
+        chrome.notifications.clear(notificationId);
+        }, 3000);  // 自動清除
+    });
   }
 });
