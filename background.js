@@ -38,7 +38,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const matched = filtered.filter(el => {
             const msg = el.querySelector('[class*="messageContent_"]')?.textContent || "";
             const title = el.querySelector('[class*="postTitleText_"]')?.textContent || "";
-            return msg.includes("抽") || title.includes("抽") || title.includes("送") || msg.includes("送");
+            return msg.includes("抽") || title.includes("抽");
           });
 
           if (matched.length > 0) {
@@ -154,7 +154,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           } else {
             if (!scrollContainer) break;
             scrollContainer.scrollBy(0, 600);
-            await delay(1000);
+            await delay(500);
             scrollCount++;
           }
         }
@@ -211,7 +211,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           const scroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
           if (scroll) scroll.scrollTop = scroll.scrollHeight;
-          await delay(1000);
+
+          while (document.querySelector('[class*="newMessagesBar_"]')){
+              if (scroll) scroll.scrollTop = scroll.scrollHeight;
+              await delay(200);
+          }
+              
         }
 
         // 顯示通知
@@ -236,7 +241,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }, () => {
         setTimeout(() => {
         chrome.notifications.clear(notificationId);
-        }, 3000);  // 自動清除
+        }, 2000);  // 自動清除
     });
   }
 });
