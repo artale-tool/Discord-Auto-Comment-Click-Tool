@@ -21,10 +21,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
 
         const scrollContainer = document.querySelector('[class*="scrollerBase_"][class*="list_"]');
-        const maxScrolls = 10;
-        let scrollCount = 0;
 
-        while (scrollCount < maxScrolls) {
+        while (scrollContainer.scrollTop < scrollContainer.scrollHeight) {
           if (await checkShouldStop()) return "⛔ 已手動停止";
 
           const filtered = [...document.querySelectorAll('[class*="mainCard_"][class*="container_"]')].filter(el => {
@@ -70,16 +68,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const messageScroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
             if (messageScroll) messageScroll.scrollTop = messageScroll.scrollHeight;
 
+            await new Promise(resolve => {
+              const checkExist = setInterval(() => {
+                if (document.querySelector('[id*="chat-messages-"]')) {
+                  clearInterval(checkExist);
+                  resolve();
+                }
+              }, 100);
+            });
+
             const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
-            const hasDeletedPost = !!document.querySelector('[class*="text-md/normal"]');
-            const allMessages = hasDeletedPost ? rawMessages : rawMessages.slice(1);
+            const allMessages = rawMessages.slice(-10); // 取最後10個
+
+            // 檢查是否結束
+            for (const msgElement of allMessages) {
+              const text = msgElement.textContent || '';
+              if (text.includes('中獎') || text.includes('領') || text.includes('恭喜') || text.includes('感謝') ||
+                  text.includes('結束') || text.includes('截') || text.includes('流標') || text.includes('直購')) {
+
+                // 顯示通知
+                chrome.runtime.sendMessage({
+                    type: "SHOW_NOTIFICATION",
+                    title: "結束",
+                    message: `已結束抽獎`,
+                });
+
+                return "已結束抽獎"
+              }
+            }
 
             const pattern = /^(\d+)(\D+)$|^(\D+)(\d+)$/; // 數字+文字 或 文字+數字
             const counter = {}; // { keyword: [數字, 數字, ...] }
             const formatMap = {}; // { keyword: 'prefix' | 'suffix' }
 
             for (let i = allMessages.length - 1; i >= 0; i--) {
-                const text = allMessages[i].querySelector('[id*="message-content-"]')?.textContent.trim();
+                const text = allMessages[i].querySelector('[id*="message-content-"]')?.childNodes[0]?.textContent.trim();
                 if (!text) continue;
 
                 const match = text.match(pattern);
@@ -118,16 +141,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
 
             if (mostCommonKeyword !== null) {
-                const maxNumber = Math.max(...counter[mostCommonKeyword]);
-                const format = formatMap[mostCommonKeyword];
-                const nextNumber = maxNumber + 1;
+                // 去重 & 遞減排序
+                const sorted = [...new Set(counter[mostCommonKeyword])]
+                  .sort((a, b) => b - a);
 
-                let nextText;
-                if (format === 'prefix') {
-                    nextText = `${nextNumber}${mostCommonKeyword}`;
-                } else {
-                    nextText = `${mostCommonKeyword}${nextNumber}`;
+
+                // 先假設最大就是正確的
+                let validMax = sorted[0];
+
+                // 從大到小找第一組連號
+                for (let i = 0; i < sorted.length - 1; i++) {
+                  const current = sorted[i];
+                  const next = sorted[i + 1];
+
+                  if (current - next === 1) {
+                    validMax = current;
+                    break;
+                  }
                 }
+                
+                const nextNumber = validMax + 1;             // 下一個該用的號碼
+                const format = formatMap[mostCommonKeyword];
+                const nextText =
+                  format === 'prefix'
+                    ? `${nextNumber}${mostCommonKeyword}`
+                    : `${mostCommonKeyword}${nextNumber}`;
 
                 // 建立隱藏 textarea 複製
                 const textarea = document.createElement("textarea");
@@ -187,7 +225,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!scrollContainer) break;
             scrollContainer.scrollBy(0, 600);
             await delay(500);
-            scrollCount++;
           }
         }
 
