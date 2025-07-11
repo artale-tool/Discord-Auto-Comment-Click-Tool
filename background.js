@@ -59,18 +59,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             });
 
             while (true) {
-              const specialBtn = [...document.querySelectorAll('[class*="button_"][class*="lookFilled_"]')]
-                .find(btn => btn.textContent.trim() === "跳到至當前");
-              if (!specialBtn) break;
+              const bar = document.querySelector('[class*="jumpToPresentBar_"]');
+              const button = bar ? bar.querySelector('[role="button"]') : null;
+              if (!button) break;
 
-              specialBtn.click();
+              button.click();
               await delay(2000);
             }
 
             const messageScroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
             if (messageScroll) messageScroll.scrollTop = messageScroll.scrollHeight;
 
-            const allMessages = Array.from(document.querySelectorAll('[id*="chat-messages-"]'));
+            const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
+            const hasDeletedPost = !!document.querySelector('[class*="text-md/normal"]');
+            const allMessages = hasDeletedPost ? rawMessages : rawMessages.slice(1);
 
             const pattern = /^(\d+)(\D+)$|^(\D+)(\d+)$/; // 數字+文字 或 文字+數字
             const counter = {}; // { keyword: [數字, 數字, ...] }
@@ -202,10 +204,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           });
 
           while (true) {
-            const btn = [...document.querySelectorAll('[class*="button_"][class*="lookFilled_"]')]
-              .find(b => b.textContent.trim() === "跳到至當前");
-            if (!btn) break;
-            btn.click();
+            const bar = document.querySelector('[class*="jumpToPresentBar_"]');
+            const button = bar ? bar.querySelector('[role="button"]') : null;
+            if (!button) break;
+            button.click();
             await delay(2000);
           }
 
