@@ -143,6 +143,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                         title: "複製完成",
                         message: `已複製 ${nextText} 到剪貼簿`,
                     });
+
+                    // 模擬點擊 + 貼上文字
+                    const editorEl = document.querySelector('div[contenteditable="true"][data-slate-editor="true"]');
+
+                    if (editorEl) {
+                      // 模擬點擊聚焦
+                      editorEl.focus();
+
+                      const clipboardEvent = new ClipboardEvent('paste', {
+                        bubbles: true,
+                        cancelable: true,
+                        clipboardData: new DataTransfer()
+                      });
+                      clipboardEvent.clipboardData.setData('text/plain', nextText);
+
+                      // 派發 paste 事件
+                      editorEl.dispatchEvent(clipboardEvent);
+
+                      // 模擬按 Enter 鍵 (keydown)
+                      const enterEvent = new KeyboardEvent('keydown', {
+                        key: 'Enter',
+                        code: 'Enter',
+                        keyCode: 13,
+                        which: 13,
+                        bubbles: true
+                      });
+                      editorEl.dispatchEvent(enterEvent);
+                    }
+
+
                 } catch (err) {
                     console.error("❌ 複製失敗", err);
                 }
