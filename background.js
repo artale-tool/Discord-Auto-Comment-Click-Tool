@@ -77,95 +77,103 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               }, 100);
             });
 
-            const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
-            const allMessages = rawMessages.slice(-10); // 取最後10個
+            const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))'));
+            let allMessages = rawMessages.slice(-10); // 取最後10個
 
             // 檢查是否結束
-            for (const msgElement of allMessages) {
-              const text = msgElement.textContent || '';
-              if (text.includes('中獎') || text.includes('領') || text.includes('恭喜') || text.includes('感謝') ||
-                  text.includes('結束') || text.includes('截') || text.includes('流標') || text.includes('直購')) {
+            if (rawMessages.length > 10) {
+              for (const msgElement of allMessages) {
+                const text = msgElement.textContent || '';
+                if (text.includes('中獎') || text.includes('領') || text.includes('恭喜') || text.includes('謝') ||
+                    text.includes('結') || text.includes('截') || text.includes('流') || text.includes('已') ||
+                    text.includes('私')) {
 
-                // 顯示通知
-                chrome.runtime.sendMessage({
-                    type: "SHOW_NOTIFICATION",
-                    title: "結束",
-                    message: `已結束抽獎`,
-                });
+                  // 顯示通知
+                  chrome.runtime.sendMessage({
+                      type: "SHOW_NOTIFICATION",
+                      title: "結束",
+                      message: `已結束抽獎`,
+                  });
 
-                return "已結束抽獎"
+                  return "已結束抽獎"
+                }
+              }
+            } else {
+              allMessages = allMessages.slice(1);
+            }
+
+            const numberRegex = /\d+/g;
+            const counter = Object.create(null); // { keyword: Set<number> }
+            const positionMap = Object.create(null); // { keyword: number (數字在文字中的位置 index) }
+
+            for (let i = allMessages.length - 1; i >= 0; i--) {
+              const node = allMessages[i]
+                .querySelector('[id*="message-content-"]')?.childNodes[0];
+              if (!node) continue;
+
+              const fullText = node.textContent.trim();
+              if (!fullText) continue;
+
+              const parts = fullText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+
+              for (const text of parts) {
+                const matches = [...text.matchAll(numberRegex)];
+                if (!matches.length) continue;
+
+                for (const match of matches) {
+                  const numStr = match[0];
+                  const num = parseInt(numStr, 10);
+                  const index = match.index;
+
+                  const keyword = text.replace(numStr, '').trim() || '(空字串)';
+
+                  if (!counter[keyword]) counter[keyword] = new Set();
+                  counter[keyword].add(num);
+
+                  if (positionMap[keyword] === undefined) {
+                    positionMap[keyword] = index;
+                  }
+                }
               }
             }
 
-            const pattern = /^(\d+)(\D+)$|^(\D+)(\d+)$/; // 數字+文字 或 文字+數字
-            const counter = {}; // { keyword: [數字, 數字, ...] }
-            const formatMap = {}; // { keyword: 'prefix' | 'suffix' }
+            // 尋找最長連號
+            let bestKey = null;
+            let bestRunLen = 0;
+            let bestMaxNumber = 0;
 
-            for (let i = allMessages.length - 1; i >= 0; i--) {
-                const text = allMessages[i].querySelector('[id*="message-content-"]')?.childNodes[0]?.textContent.trim();
-                if (!text) continue;
+            for (const [key, numSet] of Object.entries(counter)) {
+              const arr = [...numSet].sort((a, b) => a - b);
+              let curLen = 1, maxRunLen = 1;
 
-                const match = text.match(pattern);
-                if (match) {
-                    let number = null;
-                    let keyword = null;
-                    let format = null;
-
-                    if (match[1] && match[2]) {
-                        number = parseInt(match[1], 10);
-                        keyword = match[2];
-                        format = 'prefix'; // 數字在前
-                    } else if (match[3] && match[4]) {
-                        keyword = match[3];
-                        number = parseInt(match[4], 10);
-                        format = 'suffix'; // 數字在後
-                    }
-
-                    if (!isNaN(number)) {
-                        if (!counter[keyword]) counter[keyword] = [];
-                        counter[keyword].push(number);
-
-                        if (!formatMap[keyword]) formatMap[keyword] = format;
-                    }
+              for (let j = 1; j < arr.length; j++) {
+                if (arr[j] === arr[j - 1] + 1) {
+                  curLen++;
+                  maxRunLen = Math.max(maxRunLen, curLen);
+                } else {
+                  curLen = 1;
                 }
+              }
+
+              const maxVal = arr[arr.length - 1];
+
+              if (
+                maxRunLen > bestRunLen ||
+                (maxRunLen === bestRunLen && maxVal > bestMaxNumber)
+              ) {
+                bestKey = key;
+                bestRunLen = maxRunLen;
+                bestMaxNumber = maxVal;
+              }
             }
 
-            // 找出出現最多次的關鍵詞
-            let mostCommonKeyword = null;
-            let highestCount = 0;
-            for (const key in counter) {
-                if (counter[key].length > highestCount) {
-                    highestCount = counter[key].length;
-                    mostCommonKeyword = key;
-                }
-            }
+            // 產生下一個號碼
+            if (bestKey !== null && bestKey !== '(空字串)') {
+                const nextNumber = bestMaxNumber + 1;
+                const index = positionMap[bestKey];
 
-            if (mostCommonKeyword !== null) {
-                // 去重 & 遞減排序
-                const sorted = [...new Set(counter[mostCommonKeyword])]
-                  .sort((a, b) => b - a);
-
-
-                // 先假設最大就是正確的
-                let validMax = sorted[0];
-
-                // 從大到小找第一組連號
-                for (let i = 0; i < sorted.length - 1; i++) {
-                  const current = sorted[i];
-                  const next = sorted[i + 1];
-
-                  if (current - next === 1) {
-                    validMax = current;
-                    break;
-                  }
-                }
-                
-                const nextNumber = validMax + 1;             // 下一個該用的號碼
-                const format = formatMap[mostCommonKeyword];
                 const nextText =
-                  format === 'prefix'
-                    ? `${nextNumber}${mostCommonKeyword}`
-                    : `${mostCommonKeyword}${nextNumber}`;
+                  bestKey.slice(0, index) + nextNumber.toString() + bestKey.slice(index);
 
                 // 建立隱藏 textarea 複製
                 const textarea = document.createElement("textarea");
@@ -270,6 +278,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }, 100);
           });
 
+          // 滑動至最下面
           while (true) {
             const bar = document.querySelector('[class*="jumpToPresentBar_"]');
             const button = bar ? bar.querySelector('[role="button"]') : null;
@@ -281,10 +290,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const scroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
           if (scroll) scroll.scrollTop = scroll.scrollHeight;
 
+          // 等待新訊息橫條消失
           while (document.querySelector('[class*="newMessagesBar_"]')){
               if (scroll) scroll.scrollTop = scroll.scrollHeight;
               await delay(200);
           }
+
+          const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
+          const allMessages = rawMessages.slice(-10); // 取最後10個
+
+          // 檢查是否結束
+          for (const msgElement of allMessages) {
+            const text = msgElement.textContent || '';
+            if (text.includes('中獎') || text.includes('領') || text.includes('恭喜') || text.includes('感謝') ||
+                text.includes('停') || text.includes('私') || text.includes('流標') || text.includes('直購') ) {
+
+              // 顯示通知
+              chrome.runtime.sendMessage({
+                  type: "SHOW_NOTIFICATION",
+                  title: "結束",
+                  message: `已結束抽獎`,
+              });
+
+              return "已結束抽獎"
+            }
+          }
+
               
         }
 
