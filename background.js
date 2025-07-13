@@ -203,10 +203,18 @@ function runScriptInTab(tabId, mode) {
 
           const last10=[...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')].slice(-10);
           const finished = last10.find(el=>{
-            const txt=el.textContent??'';
+            const node = el.querySelector('[id*="message-content-"]')?.childNodes[0];
+            const txt  = node?.textContent.trim() ?? "";
             return FINISH_KEYWORDS.some(k=>txt.includes(k));
           });
           if (finished){
+
+            const followBtn = Array.from(document.querySelectorAll('[aria-label="將此貼文新增至您的頻道名單並接收其通知。"]'))
+              .find(el => el.textContent.trim() === "正在追蹤");
+            if (followBtn) {
+              followBtn.click();
+            }
+
             showNotification("結束", "已結束抽獎", "done");
             return "已結束抽獎";
           }
