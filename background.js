@@ -1,347 +1,248 @@
 let shouldStop = false;
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // 設定停止旗標
-  if (msg.type === "setShouldStop") {
-    shouldStop = msg.value;
-    sendResponse({ success: true });
+// ---------------- background helpers ----------------
+function showNotification(title = "通知", message = "", id = "default-notification") {
+  chrome.notifications.create(id, {
+    type: "basic",
+    iconUrl: "icon.png",
+    title,
+    message
+  }, () => setTimeout(() => chrome.notifications.clear(id), 2000));
+}
 
-  // 查詢是否應該停止
-  } else if (msg.type === "getShouldStop") {
-    sendResponse({ shouldStop });
+function runScriptInTab(tabId, mode) {
+  chrome.scripting.executeScript({
+    target: { tabId },
+    args: [mode],
+    func: async (mode) => {
+      /* ---------------- shared helpers in content script ---------------- */
+      const FINISH_KEYWORDS = ['中獎','領','恭喜','謝','流','已','私','感謝','停','流標'];
 
-  // 點下則留言
-  } else if (msg.type === "runClickNext" && msg.tabId) {
-    chrome.scripting.executeScript({
-      target: { tabId: msg.tabId },
-      func: async () => {
-        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-        const checkShouldStop = () => new Promise(resolve => {
-          chrome.runtime.sendMessage({ type: "getShouldStop" }, res => resolve(res.shouldStop));
+      const delay = ms => new Promise(r => setTimeout(r, ms));
+
+      const waitUntil = (conditionFn, interval = 100) =>
+        new Promise(resolve => {
+          const timer = setInterval(() => {
+            if (conditionFn()) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, interval);
         });
 
+      const checkShouldStop = () => new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: "getShouldStop" }, res => resolve(res.shouldStop));
+      });
+
+      const showNotification = (title, message) => {
+        chrome.runtime.sendMessage({ type: "SHOW_NOTIFICATION", title, message });
+      };
+
+      const scrollToBottom = () => {
+        const el = document.querySelector('[class*="scroller_"][class*="auto_"]');
+        if (el) el.scrollTop = el.scrollHeight;
+      };
+
+      /* ---------------- clickNext ---------------- */
+      async function clickNext() {
         const scrollContainer = document.querySelector('[class*="scrollerBase_"][class*="list_"]');
+        if (!scrollContainer) return "❌ 找不到 scroll container";
 
         while (scrollContainer.scrollTop < scrollContainer.scrollHeight) {
           if (await checkShouldStop()) return "⛔ 已手動停止";
 
-          const filtered = [...document.querySelectorAll('[class*="mainCard_"][class*="container_"]')].filter(el => {
-            const hasNoNewMessage = !el.querySelector('[class*="newMessageCount_"]');
-            const hasPrimaryColor = [...el.querySelectorAll('[style]')].some(child =>
-              child.getAttribute("style")?.includes('color: var(--header-primary)')
-            );
-            return hasNoNewMessage && hasPrimaryColor;
+          const candidates = [...document.querySelectorAll('[class*="mainCard_"][class*="container_"]')]
+            .filter(el => !el.querySelector('[class*="newMessageCount_"]'))
+            .filter(el => [...el.querySelectorAll('[style]')]
+              .some(child => child.getAttribute("style")?.includes('color: var(--header-primary)')));
+
+          const matched = candidates.filter(el => {
+            const msg = el.querySelector('[class*="messageContent_"]')?.textContent ?? "";
+            const title = el.querySelector('[class*="postTitleText_"]')?.textContent ?? "";
+            return /抽/.test(msg) || /抽/.test(title);
           });
 
-          const matched = filtered.filter(el => {
-            const msg = el.querySelector('[class*="messageContent_"]')?.textContent || "";
-            const title = el.querySelector('[class*="postTitleText_"]')?.textContent || "";
-            return msg.includes("抽") || title.includes("抽");
-          });
+          if (matched.length) {
+            const card = matched[0];
+            const postTitle = card.querySelector('[class*="postTitleText_"]')?.textContent.trim() ?? "";
 
-          if (matched.length > 0) {
-            const el = matched[0];
-            const title = el.querySelector('[class*="postTitleText_"]')?.textContent.trim() || "";
+            scrollContainer.scrollTop = card.offsetTop;
+            card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
 
-            if (scrollContainer)
-                scrollContainer.scrollTop = el.offsetTop;
-            el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+            await waitUntil(() => document.querySelector('[id*="chat-messages-"]'));
 
-            await new Promise(resolve => {
-              const checkExist = setInterval(() => {
-                if (document.querySelector('[id*="chat-messages-"]')) {
-                  clearInterval(checkExist);
-                  resolve();
-                }
-              }, 100);
-            });
-
+            // 跳到最新訊息
             while (true) {
-              const bar = document.querySelector('[class*="jumpToPresentBar_"]');
-              const button = bar ? bar.querySelector('[role="button"]') : null;
-              if (!button) break;
-
-              button.click();
-              await delay(2000);
+              const btn = document.querySelector('[class*="jumpToPresentBar_"] [role="button"]');
+              if (!btn) break;
+              btn.click();
+              await delay(1500);
             }
 
-            const messageScroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
-            if (messageScroll) messageScroll.scrollTop = messageScroll.scrollHeight;
+            scrollToBottom();
+            await waitUntil(() => document.querySelector('[id*="chat-messages-"]'));
 
-            await new Promise(resolve => {
-              const checkExist = setInterval(() => {
-                if (document.querySelector('[id*="chat-messages-"]')) {
-                  clearInterval(checkExist);
-                  resolve();
-                }
-              }, 100);
-            });
+            const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
+            let msgs = rawMessages.slice(-10);
 
-            const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))'));
-            let allMessages = rawMessages.slice(-10); // 取最後10個
-
-            // 檢查是否結束
+            let finishedMsg = null; // 若偵測到結束訊息，存放文字內容方便之後通知
             if (rawMessages.length > 10) {
-              for (const msgElement of allMessages) {
-                const text = msgElement.textContent || '';
-                if (text.includes('中獎') || text.includes('領') || text.includes('恭喜') || text.includes('謝') ||
-                    text.includes('結') || text.includes('截') || text.includes('流') || text.includes('已') ||
-                    text.includes('私')) {
-
-                  // 顯示通知
-                  chrome.runtime.sendMessage({
-                      type: "SHOW_NOTIFICATION",
-                      title: "結束",
-                      message: `已結束抽獎`,
-                  });
-
-                  return "已結束抽獎"
-                }
+              const finishedEl = msgs.find(el => {
+                const node = el.querySelector('[id*="message-content-"]')?.childNodes[0];
+                const txt  = node?.textContent.trim() ?? "";
+                return FINISH_KEYWORDS.some(k => txt.includes(k));
+              });
+              if (finishedEl) {
+                finishedMsg = finishedEl.textContent.trim();
               }
             } else {
-              allMessages = allMessages.slice(1);
+              msgs = msgs.slice(1);
             }
 
-            const numberRegex = /\d+/g;
-            const counter = Object.create(null); // { keyword: Set<number> }
-            const positionMap = Object.create(null); // { keyword: number (數字在文字中的位置 index) }
-
-            for (let i = allMessages.length - 1; i >= 0; i--) {
-              const node = allMessages[i]
-                .querySelector('[id*="message-content-"]')?.childNodes[0];
+            /* -------- 收集號碼 -------- */
+            const counter = Object.create(null);
+            const posMap = Object.create(null);
+            for (let i = msgs.length - 1; i >= 0; i--) {
+              const node = msgs[i].querySelector('[id*="message-content-"]')?.childNodes[0];
               if (!node) continue;
-
-              const fullText = node.textContent.trim();
-              if (!fullText) continue;
-
-              const parts = fullText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-
-              for (const text of parts) {
-                const matches = [...text.matchAll(numberRegex)];
-                if (!matches.length) continue;
-
-                for (const match of matches) {
-                  const numStr = match[0];
-                  const num = parseInt(numStr, 10);
-                  const index = match.index;
-
-                  const keyword = text.replace(numStr, '').trim() || '(空字串)';
-
-                  if (!counter[keyword]) counter[keyword] = new Set();
-                  counter[keyword].add(num);
-
-                  if (positionMap[keyword] === undefined) {
-                    positionMap[keyword] = index;
-                  }
+              const lines = node.textContent.trim().split("\n").map(t=>t.trim()).filter(Boolean);
+              for (const line of lines) {
+                const matches = [...line.matchAll(/\d+/g)];
+                for (const m of matches) {
+                  const n = parseInt(m[0], 10);
+                  const key = line.replace(m[0], '').trim() || '(空字串)';
+                  counter[key] ??= new Set();
+                  counter[key].add(n);
+                  posMap[key] ??= m.index;
                 }
               }
             }
 
-            // 尋找最長連號
-            let bestKey = null;
-            let bestRunLen = 0;
-            let bestMaxNumber = 0;
-
-            for (const [key, numSet] of Object.entries(counter)) {
-              const arr = [...numSet].sort((a, b) => a - b);
-              let curLen = 1, maxRunLen = 1;
-
-              for (let j = 1; j < arr.length; j++) {
-                if (arr[j] === arr[j - 1] + 1) {
-                  curLen++;
-                  maxRunLen = Math.max(maxRunLen, curLen);
-                } else {
-                  curLen = 1;
-                }
+            /* -------- 找最佳連號 -------- */
+            let bestKey = null, bestRun = 0, bestMax = 0;
+            for (const [key,set] of Object.entries(counter)) {
+              const arr=[...set].sort((a,b)=>a-b);
+              let run=1,maxRun=1;
+              for (let j=1;j<arr.length;j++){
+                run = arr[j]===arr[j-1]+1 ? run+1 :1;
+                maxRun=Math.max(maxRun,run);
               }
-
-              const maxVal = arr[arr.length - 1];
-
-              if (
-                maxRunLen > bestRunLen ||
-                (maxRunLen === bestRunLen && maxVal > bestMaxNumber)
-              ) {
-                bestKey = key;
-                bestRunLen = maxRunLen;
-                bestMaxNumber = maxVal;
+              const maxVal=arr[arr.length-1];
+              if (maxRun>bestRun|| (maxRun===bestRun&&maxVal>bestMax)){
+                bestKey=key;bestRun=maxRun;bestMax=maxVal;
               }
             }
 
-            // 產生下一個號碼
-            if (bestKey !== null && bestKey !== '(空字串)') {
-                const nextNumber = bestMaxNumber + 1;
-                const index = positionMap[bestKey];
+            if (bestKey && bestKey!=='(空字串)'){
+              const nextNum = bestMax+1;
+              const idx = posMap[bestKey];
+              const nextText = bestKey.slice(0,idx)+nextNum+bestKey.slice(idx);
 
-                const nextText =
-                  bestKey.slice(0, index) + nextNumber.toString() + bestKey.slice(index);
+              // 複製到剪貼簿
+              const ta=document.createElement("textarea");
+              ta.value=nextText;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();
+              showNotification("複製完成", `已複製 ${nextText} 到剪貼簿`, "copy");
+              await delay(500);
 
-                // 建立隱藏 textarea 複製
-                const textarea = document.createElement("textarea");
-                textarea.value = nextText;
-                document.body.appendChild(textarea);
-                textarea.select();
-                try {
-                    document.execCommand("copy");
+              // 若有結束訊息，複製完才顯示通知並結束
+              if (finishedMsg) {
+                showNotification("結束抽獎", finishedMsg, "done");
+                return "已結束抽獎";
+              }
 
-                    // 顯示通知
-                    chrome.runtime.sendMessage({
-                        type: "SHOW_NOTIFICATION",
-                        title: "複製完成",
-                        message: `已複製 ${nextText} 到剪貼簿`,
-                    });
-
-                    // 模擬點擊 + 貼上文字
-                    const editorEl = document.querySelector('div[contenteditable="true"][data-slate-editor="true"]');
-
-                    if (editorEl) {
-                      // 模擬點擊聚焦
-                      editorEl.focus();
-
-                      const clipboardEvent = new ClipboardEvent('paste', {
-                        bubbles: true,
-                        cancelable: true,
-                        clipboardData: new DataTransfer()
-                      });
-                      clipboardEvent.clipboardData.setData('text/plain', nextText);
-
-                      // 派發 paste 事件
-                      editorEl.dispatchEvent(clipboardEvent);
-
-                      // 模擬按 Enter 鍵 (keydown)
-                      const enterEvent = new KeyboardEvent('keydown', {
-                        key: 'Enter',
-                        code: 'Enter',
-                        keyCode: 13,
-                        which: 13,
-                        bubbles: true
-                      });
-                      editorEl.dispatchEvent(enterEvent);
-                    }
-
-
-                } catch (err) {
-                    console.error("❌ 複製失敗", err);
-                }
-                document.body.removeChild(textarea);
+              // 貼上並送出
+              const editor=document.querySelector('div[contenteditable="true"][data-slate-editor="true"]');
+              if (editor){
+                editor.focus();
+                const pasteEvt=new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:new DataTransfer()});
+                pasteEvt.clipboardData.setData('text/plain', nextText);
+                editor.dispatchEvent(pasteEvt);
+                editor.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
+              }
+              return "✅ 點擊留言成功：" + postTitle;
             } else {
-                console.warn("⚠️ 找不到符合格式的留言");
+              console.warn("⚠️ 找不到符合格式的留言");
             }
-
-
-            return "✅ 點擊留言成功：" + title;
           } else {
-            if (!scrollContainer) break;
-            scrollContainer.scrollBy(0, 600);
-            await delay(500);
+            scrollContainer.scrollBy(0,600);
+            await delay(400);
           }
         }
-
-        // 顯示通知
-        chrome.runtime.sendMessage({
-            type: "SHOW_NOTIFICATION",
-            title: "搜尋結束",
-            message: `找不到符合條件的留言，請重新執行`,
-        });
+        showNotification("搜尋結束", "找不到符合條件的留言，請重新執行", "done");
         return "⚠️ 找不到符合條件的留言";
       }
-    });
-    // 不需 sendResponse
-    return true;
 
-  // 閱讀所有追蹤貼文
-  } else if (msg.type === "runReadAll" && msg.tabId) {
-    chrome.scripting.executeScript({
-      target: { tabId: msg.tabId },
-      func: async () => {
-        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-        const checkShouldStop = () => new Promise(resolve => {
-          chrome.runtime.sendMessage({ type: "getShouldStop" }, res => resolve(res.shouldStop));
-        });
+      /* ---------------- readAll ---------------- */
+      async function readAll() {
+        const channelScroller = document.querySelector('[class*="scroller_"][id="channels"]');
+        const thread = document.querySelector('[role="group"][aria-label*="討論串"]');
+        if (!channelScroller || !thread) return "❌ 找不到討論串";
 
-        const scroller = document.querySelector('[class*="scroller_"][id="channels"]');
-        const thread = document.querySelector('[role="group"][aria-label="交易買賣討論區 討論串"]');
         const unread = [...thread.querySelectorAll('[role="listitem"]')]
           .filter(el => el.querySelector('[class*="unread_"]')).reverse();
 
-        for (const el of unread) {
+        for (const li of unread) {
           if (await checkShouldStop()) return "⛔ 已手動停止";
 
-          scroller.scrollTop = el.offsetTop;
-          el.querySelector('[role="button"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          channelScroller.scrollTop = li.offsetTop;
+          li.querySelector('[role="button"]')?.dispatchEvent(new MouseEvent("click",{bubbles:true}));
 
-          await new Promise(resolve => {
-            const interval = setInterval(() => {
-              if (document.querySelector('[id*="chat-messages-"]')) {
-                clearInterval(interval);
-                resolve();
-              }
-            }, 100);
+          await waitUntil(()=>document.querySelector('[id*="chat-messages-"]'));
+
+          while (true){
+            const btn=document.querySelector('[class*="jumpToPresentBar_"] [role="button"]');
+            if (!btn) break;
+            btn.click();
+            await delay(1500);
+          }
+
+          scrollToBottom();
+
+          // 等 newMessagesBar 消失
+          await waitUntil(()=>!document.querySelector('[class*="newMessagesBar_"]'),200);
+
+          const last10=[...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')].slice(-10);
+          const finished = last10.find(el=>{
+            const txt=el.textContent??'';
+            return FINISH_KEYWORDS.some(k=>txt.includes(k));
           });
-
-          // 滑動至最下面
-          while (true) {
-            const bar = document.querySelector('[class*="jumpToPresentBar_"]');
-            const button = bar ? bar.querySelector('[role="button"]') : null;
-            if (!button) break;
-            button.click();
-            await delay(2000);
+          if (finished){
+            showNotification("結束", "已結束抽獎", "done");
+            return "已結束抽獎";
           }
-
-          const scroll = document.querySelector('[class*="scroller_"][class*="auto_"]');
-          if (scroll) scroll.scrollTop = scroll.scrollHeight;
-
-          // 等待新訊息橫條消失
-          while (document.querySelector('[class*="newMessagesBar_"]')){
-              if (scroll) scroll.scrollTop = scroll.scrollHeight;
-              await delay(200);
-          }
-
-          const rawMessages = Array.from(document.querySelectorAll('li[id^="chat-messages-"]'));
-          const allMessages = rawMessages.slice(-10); // 取最後10個
-
-          // 檢查是否結束
-          for (const msgElement of allMessages) {
-            const text = msgElement.textContent || '';
-            if (text.includes('中獎') || text.includes('領') || text.includes('恭喜') || text.includes('感謝') ||
-                text.includes('停') || text.includes('私') || text.includes('流標') || text.includes('直購') ) {
-
-              // 顯示通知
-              chrome.runtime.sendMessage({
-                  type: "SHOW_NOTIFICATION",
-                  title: "結束",
-                  message: `已結束抽獎`,
-              });
-
-              return "已結束抽獎"
-            }
-          }
-
-              
         }
-
-        // 顯示通知
-        chrome.runtime.sendMessage({
-            type: "SHOW_NOTIFICATION",
-            title: "讀取結束",
-            message: `✅ 已讀取所有貼文`,
-        });
-
+        showNotification("讀取結束","✅ 已讀取所有貼文", "done");
         return "✅ 已讀取所有貼文";
       }
-    });
-    return true;
-  } else if (msg.type === "SHOW_NOTIFICATION") {
-    const notificationId = "default-notification";
 
-    chrome.notifications.create(notificationId, {
-        type: "basic",
-        iconUrl: "icon.png",
-        title: msg.title || "通知",
-        message: msg.message || ""
-    }, () => {
-        setTimeout(() => {
-        chrome.notifications.clear(notificationId);
-        }, 2000);  // 自動清除
-    });
+      /* ---------------- execute ---------------- */
+      return mode === "clickNext" ? await clickNext() : await readAll();
+    }
+  });
+}
+
+// ---------------- background message listener ----------------
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  switch (msg.type) {
+    case "setShouldStop":
+      shouldStop = msg.value;
+      sendResponse({ success: true });
+      break;
+
+    case "getShouldStop":
+      sendResponse({ shouldStop });
+      break;
+
+    case "runClickNext":
+      if (msg.tabId) runScriptInTab(msg.tabId, "clickNext");
+      return true;
+
+    case "runReadAll":
+      if (msg.tabId) runScriptInTab(msg.tabId, "readAll");
+      return true;
+
+    case "SHOW_NOTIFICATION":
+      showNotification(msg.title, msg.message);
+      break;
   }
 });
