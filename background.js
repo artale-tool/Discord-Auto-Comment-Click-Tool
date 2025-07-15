@@ -16,7 +16,7 @@ function runScriptInTab(tabId, mode) {
     args: [mode],
     func: async (mode) => {
       /* ---------------- shared helpers in content script ---------------- */
-      const FINISH_KEYWORDS = ['中獎','領','恭喜','謝','流','已','私','感謝','停','流標'];
+      const FINISH_KEYWORDS = ['中獎','領','恭喜','謝','流','已','私','停','截','結'];
 
       const delay = ms => new Promise(r => setTimeout(r, ms));
 
@@ -101,7 +101,7 @@ function runScriptInTab(tabId, mode) {
 
             /* -------- 收集號碼 -------- */
             const counter = Object.create(null);
-            const posMap = Object.create(null);
+            const posMap = Object.create(null); // 現在存 { index, width }
             for (let i = msgs.length - 1; i >= 0; i--) {
               const node = msgs[i].querySelector('[id*="message-content-"]')?.childNodes[0];
               if (!node) continue;
@@ -111,9 +111,9 @@ function runScriptInTab(tabId, mode) {
                 for (const m of matches) {
                   const n = parseInt(m[0], 10);
                   const key = line.replace(m[0], '').trim() || '(空字串)';
-                  counter[key] ??= new Set();
-                  counter[key].add(n);
-                  posMap[key] ??= m.index;
+
+                  (counter[key] ??= new Set()).add(n);
+                  posMap[key] ??= { index: m.index, width: m[0].length };   // ←★ 多存寬度
                 }
               }
             }
@@ -134,9 +134,9 @@ function runScriptInTab(tabId, mode) {
             }
 
             if (bestKey && bestKey!=='(空字串)'){
-              const nextNum = bestMax+1;
-              const idx = posMap[bestKey];
-              const nextText = bestKey.slice(0,idx)+nextNum+bestKey.slice(idx);
+              const { index: idx, width } = posMap[bestKey];
+              const nextNumStr = String(bestMax + 1).padStart(width, '0');  // ←★ 補 0
+              const nextText   = bestKey.slice(0, idx) + nextNumStr + bestKey.slice(idx);
 
               // 複製到剪貼簿
               const ta=document.createElement("textarea");
