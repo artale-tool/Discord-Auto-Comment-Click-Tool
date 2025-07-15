@@ -213,9 +213,31 @@ function runScriptInTab(tabId, mode) {
               .find(el => el.textContent.trim() === "正在追蹤");
             if (followBtn) {
               followBtn.click();
+            } else {
+              // 右鍵 > 取消追蹤
+              const btn = li.querySelector('[role="button"]');
+              if (btn) {
+                const rightClickEvent = new MouseEvent('contextmenu', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                  button: 2,          // 右鍵代碼（0:左鍵, 1:中鍵, 2:右鍵）
+                  buttons: 2,         // 通常設為2以代表右鍵按鈕
+                  clientX: btn.getBoundingClientRect().left,
+                  clientY: btn.getBoundingClientRect().top,
+                });
+
+                btn.dispatchEvent(rightClickEvent);
+                await delay(500);
+
+                const leaveItem = document.querySelector('[id="thread-context-leave-thread"]');
+                if (leaveItem) {
+                  leaveItem.click()
+                }
+              }
             }
 
-            showNotification("結束", "已結束抽獎", "done");
+            showNotification("結束", finished.textContent.trim(), "done");
             return "已結束抽獎";
           }
         }
