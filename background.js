@@ -38,10 +38,37 @@ function runScriptInTab(tabId, mode) {
         chrome.runtime.sendMessage({ type: "SHOW_NOTIFICATION", title, message });
       };
 
-      const scrollToBottom = () => {
-        const el = document.querySelector('[class*="scroller_"][class*="auto_"]');
-        if (el) el.scrollTop = el.scrollHeight;
-      };
+      async function scrollToBottomUntilDone() {
+        const scroller = document.querySelector('[class*="scroller_"][class*="auto_"]');
+        if (!scroller) return;
+
+        const isAtBottom = Math.abs(scroller.scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
+        if (isAtBottom) return;  // ✅ 如果一開始就在底部，直接跳出
+
+        let lastScrollTop = -1;
+        let stableCount = 0;
+
+        while (true) {
+          scroller.scrollTop = scroller.scrollHeight;
+
+          await new Promise(resolve => setTimeout(resolve, 200));
+
+          const scrollTop = scroller.scrollTop;
+          const isBottom = Math.abs(scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
+
+          if (isBottom) {
+            if (scrollTop === lastScrollTop) {
+              stableCount++;
+              if (stableCount >= 3) break;  // 連續 3 次都穩定在底部才算到底
+            } else {
+              stableCount = 0;
+              lastScrollTop = scrollTop;
+            }
+          } else {
+            stableCount = 0;
+          }
+        }
+      }
 
       /* ---------------- clickNext ---------------- */
       async function clickNext() {
@@ -69,18 +96,10 @@ function runScriptInTab(tabId, mode) {
             scrollContainer.scrollTop = card.offsetTop;
             card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
 
-            await waitUntil(() => document.querySelector('[id*="chat-messages-"]'));
-
-            // 跳到最新訊息
-            while (true) {
-              const btn = document.querySelector('[class*="jumpToPresentBar_"] [role="button"]');
-              if (!btn) break;
-              btn.click();
-              await delay(1500);
-            }
-
-            scrollToBottom();
-            await waitUntil(() => document.querySelector('[id*="chat-messages-"]'));
+            // 滑到底部
+            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
+            await scrollToBottomUntilDone();
+            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
 
             const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
             let msgs = rawMessages.slice(-10);
@@ -141,13 +160,13 @@ function runScriptInTab(tabId, mode) {
               // 複製到剪貼簿
               const ta=document.createElement("textarea");
               ta.value=nextText;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();
-              showNotification("複製完成", `已複製 ${nextText} 到剪貼簿`, "copy");
-              await delay(500);
 
               // 若有結束訊息，複製完才顯示通知並結束
               if (finishedMsg) {
-                showNotification("結束抽獎", finishedMsg, "done");
-                return "已結束抽獎";
+                showNotification("已複製但可能結束", finishedMsg, "done");
+                return "結束抽獎";
+              } else {
+                showNotification("複製完成", `已複製 ${nextText} 到剪貼簿`, "copy");
               }
 
               // 貼上並送出
@@ -187,16 +206,9 @@ function runScriptInTab(tabId, mode) {
           channelScroller.scrollTop = li.offsetTop;
           li.querySelector('[role="button"]')?.dispatchEvent(new MouseEvent("click",{bubbles:true}));
 
+          // 滑至底部
           await waitUntil(()=>document.querySelector('[id*="chat-messages-"]'));
-
-          while (true){
-            const btn=document.querySelector('[class*="jumpToPresentBar_"] [role="button"]');
-            if (!btn) break;
-            btn.click();
-            await delay(1500);
-          }
-
-          scrollToBottom();
+          await scrollToBottomUntilDone();
 
           // 等 newMessagesBar 消失
           await waitUntil(()=>!document.querySelector('[class*="newMessagesBar_"]'),200);
