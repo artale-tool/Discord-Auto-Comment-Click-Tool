@@ -51,7 +51,7 @@ function runScriptInTab(tabId, mode) {
         while (true) {
           scroller.scrollTop = scroller.scrollHeight;
 
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
 
           const scrollTop = scroller.scrollTop;
           const isBottom = Math.abs(scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
@@ -99,7 +99,7 @@ function runScriptInTab(tabId, mode) {
             // 滑到底部
             await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
             await scrollToBottomUntilDone();
-            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
+            await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
 
             const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
             let msgs = rawMessages.slice(-10);
@@ -207,7 +207,7 @@ function runScriptInTab(tabId, mode) {
           li.querySelector('[role="button"]')?.dispatchEvent(new MouseEvent("click",{bubbles:true}));
 
           // 滑至底部
-          await waitUntil(()=>document.querySelector('[id*="chat-messages-"]'));
+          await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
           await scrollToBottomUntilDone();
 
           // 等 newMessagesBar 消失
