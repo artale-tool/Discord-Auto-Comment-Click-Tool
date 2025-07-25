@@ -51,6 +51,7 @@ function runScriptInTab(tabId, mode) {
         while (true) {
           scroller.scrollTop = scroller.scrollHeight;
 
+          await delay(300);
           await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
 
           const scrollTop = scroller.scrollTop;
@@ -59,7 +60,7 @@ function runScriptInTab(tabId, mode) {
           if (isBottom) {
             if (scrollTop === lastScrollTop) {
               stableCount++;
-              if (stableCount >= 3) break;  // 連續 3 次都穩定在底部才算到底
+              if (stableCount >= 2) break;  // 連續 3 次都穩定在底部才算到底
             } else {
               stableCount = 0;
               lastScrollTop = scrollTop;
@@ -97,9 +98,8 @@ function runScriptInTab(tabId, mode) {
             card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
 
             // 滑到底部
-            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
+            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]'));
             await scrollToBottomUntilDone();
-            await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
 
             const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
             let msgs = rawMessages.slice(-10);
@@ -182,6 +182,7 @@ function runScriptInTab(tabId, mode) {
               }
               return "✅ 點擊留言成功：" + postTitle;
             } else {
+              showNotification("結束", "⚠️ 找不到符合格式的留言", "done");
               console.warn("⚠️ 找不到符合格式的留言");
             }
           } else {
