@@ -107,7 +107,8 @@ function runScriptInTab(tabId, mode) {
             let finishedMsg = null; // 若偵測到結束訊息，存放文字內容方便之後通知
             if (rawMessages.length > 10) {
               const finishedEl = msgs.find(el => {
-                const node = el.querySelector('[id*="message-content-"]')?.childNodes[0];
+                const contentContainer = el.querySelector('[class^="contents_"]');
+                const node = contentContainer?.querySelector('[id*="message-content-"]')?.childNodes[0];
                 const txt  = node?.textContent.trim() ?? "";
                 return FINISH_KEYWORDS.some(k => txt.includes(k));
               });
@@ -122,7 +123,8 @@ function runScriptInTab(tabId, mode) {
             const counter = Object.create(null);
             const posMap = Object.create(null); // 現在存 { index, width }
             for (let i = msgs.length - 1; i >= 0; i--) {
-              const node = msgs[i].querySelector('[id*="message-content-"]')?.childNodes[0];
+              const contentContainer = msgs[i].querySelector('[class^="contents_"]');
+              const node = contentContainer?.querySelector('[id*="message-content-"]')?.childNodes[0];
               if (!node) continue;
               const lines = node.textContent.trim().split("\n").map(t=>t.trim()).filter(Boolean);
               for (const line of lines) {
@@ -215,7 +217,8 @@ function runScriptInTab(tabId, mode) {
 
           const last10=[...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')].slice(-10);
           const finished = last10.find(el=>{
-            const node = el.querySelector('[id*="message-content-"]')?.childNodes[0];
+            const contentContainer = el.querySelector('[class^="contents_"]');
+            const node = contentContainer?.querySelector('[id*="message-content-"]')?.childNodes[0];
             const txt  = node?.textContent.trim() ?? "";
             return FINISH_KEYWORDS.some(k=>txt.includes(k));
           });
