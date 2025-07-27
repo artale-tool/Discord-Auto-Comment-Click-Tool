@@ -57,7 +57,7 @@ function runScriptInTab(tabId, mode) {
           const scrollTop = scroller.scrollTop;
           const isBottom = Math.abs(scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
 
-          if (isBottom) {
+          if (isBottom && !document.querySelector('[class*="pointerCover"]')) {
             if (scrollTop === lastScrollTop) {
               stableCount++;
               if (stableCount >= 2) break;  // 連續 3 次都穩定在底部才算到底
@@ -98,7 +98,7 @@ function runScriptInTab(tabId, mode) {
             card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
 
             // 滑到底部
-            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]'));
+            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
             await scrollToBottomUntilDone();
 
             const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
