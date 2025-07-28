@@ -20,15 +20,20 @@ function runScriptInTab(tabId, mode) {
 
       const delay = ms => new Promise(r => setTimeout(r, ms));
 
-      const waitUntil = (conditionFn, interval = 100) =>
-        new Promise(resolve => {
+      function waitUntil(conditionFn, interval = 100, timeoutMs = 5000) {
+        return new Promise((resolve, reject) => {
+          const start = Date.now();
           const timer = setInterval(() => {
             if (conditionFn()) {
               clearInterval(timer);
               resolve();
+            } else if (Date.now() - start > timeoutMs) {
+              clearInterval(timer);
+              reject(new Error("waitUntil timeout"));
             }
           }, interval);
         });
+      }
 
       const checkShouldStop = () => new Promise(resolve => {
         chrome.runtime.sendMessage({ type: "getShouldStop" }, res => resolve(res.shouldStop));
@@ -39,36 +44,28 @@ function runScriptInTab(tabId, mode) {
       };
 
       async function scrollToBottomUntilDone() {
+
+        // 等待串文讀取完成
+        await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
+
         const scroller = document.querySelector('[class*="scroller_"][class*="auto_"]');
         if (!scroller) return;
 
-        const isAtBottom = Math.abs(scroller.scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
-        if (isAtBottom) return;  // ✅ 如果一開始就在底部，直接跳出
-
-        let lastScrollTop = -1;
-        let stableCount = 0;
-
-        while (true) {
+        // 點擊 "跳到至當前" 按鈕
+        const jumpBtn = document.querySelector('[class*="jumpToPresent"] [role="button"]');
+        if (jumpBtn) {
+          jumpBtn.click();
+        } else {
+          // 沒有按鈕則移到最底部
           scroller.scrollTop = scroller.scrollHeight;
-
-          await delay(300);
-          await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
-
-          const scrollTop = scroller.scrollTop;
-          const isBottom = Math.abs(scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
-
-          if (isBottom && !document.querySelector('[class*="pointerCover"]')) {
-            if (scrollTop === lastScrollTop) {
-              stableCount++;
-              if (stableCount >= 2) break;  // 連續 3 次都穩定在底部才算到底
-            } else {
-              stableCount = 0;
-              lastScrollTop = scrollTop;
-            }
-          } else {
-            stableCount = 0;
-          }
         }
+
+        // 持續等待，直到 jumpBtn 消失 且 scroller 到最底
+        await waitUntil(() => {
+          const stillBtn = document.querySelector('[class*="jumpToPresent"] [role="button"]');
+          const isAtBottom = Math.abs(scroller.scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
+          return !stillBtn && isAtBottom;
+        });
       }
 
       /* ---------------- clickNext ---------------- */
@@ -96,9 +93,10 @@ function runScriptInTab(tabId, mode) {
 
             scrollContainer.scrollTop = card.offsetTop;
             card.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+            
+            await delay(500);
 
             // 滑到底部
-            await waitUntil(() => document.querySelector('li[id^="chat-messages-"]:not(:has([aria-label="原貼文者"]))'));
             await scrollToBottomUntilDone();
 
             const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
@@ -165,11 +163,9 @@ function runScriptInTab(tabId, mode) {
 
               // 若有結束訊息，複製完才顯示通知並結束
               if (finishedMsg) {
-                showNotification("已複製但可能結束", finishedMsg, "done");
+                showNotification("結束", "已複製但可能結束", "done");
                 return "結束抽獎";
-              } else {
-                showNotification("複製完成", `已複製 ${nextText} 到剪貼簿`, "copy");
-              }
+              } 
 
               // 貼上並送出
               const editor=document.querySelector('div[contenteditable="true"][data-slate-editor="true"]');
@@ -183,7 +179,7 @@ function runScriptInTab(tabId, mode) {
               return "✅ 點擊留言成功：" + postTitle;
             } else {
               showNotification("結束", "⚠️ 找不到符合格式的留言", "done");
-              console.warn("⚠️ 找不到符合格式的留言");
+              return "找不到符合條件的留言"
             }
           } else {
             scrollContainer.scrollBy(0,600);
