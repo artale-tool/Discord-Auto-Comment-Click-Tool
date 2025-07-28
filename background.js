@@ -55,17 +55,21 @@ function runScriptInTab(tabId, mode) {
         const jumpBtn = document.querySelector('[class*="jumpToPresent"] [role="button"]');
         if (jumpBtn) {
           jumpBtn.click();
+
+          // 持續等待，直到 jumpBtn 消失 且 scroller 到最底
+          await waitUntil(() => {
+            const stillBtn = document.querySelector('[class*="jumpToPresent"] [role="button"]');
+            const isAtBottom = Math.abs(scroller.scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
+            return !stillBtn && isAtBottom;
+          });
+
         } else {
+          
           // 沒有按鈕則移到最底部
           scroller.scrollTop = scroller.scrollHeight;
         }
 
-        // 持續等待，直到 jumpBtn 消失 且 scroller 到最底
-        await waitUntil(() => {
-          const stillBtn = document.querySelector('[class*="jumpToPresent"] [role="button"]');
-          const isAtBottom = Math.abs(scroller.scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
-          return !stillBtn && isAtBottom;
-        });
+
       }
 
       /* ---------------- clickNext ---------------- */
@@ -122,9 +126,26 @@ function runScriptInTab(tabId, mode) {
             const posMap = Object.create(null); // 現在存 { index, width }
             for (let i = msgs.length - 1; i >= 0; i--) {
               const contentContainer = msgs[i].querySelector('[class^="contents_"]');
-              const node = contentContainer?.querySelector('[id*="message-content-"]')?.childNodes[0];
-              if (!node) continue;
-              const lines = node.textContent.trim().split("\n").map(t=>t.trim()).filter(Boolean);
+              const node = contentContainer?.querySelector('[id*="message-content-"]');
+
+            let text = "";
+            if (node) {
+              const spans = Array.from(node.children).filter(el =>
+                el.tagName === "SPAN" &&
+                !el.className.includes("mention") && // 排除 mention
+                !el.className.includes("timestamp_") // 排除 (已編輯)
+              );
+
+              spans.forEach(span => {
+                text += span.textContent;
+              });
+
+              text = text.trim();
+            } else {
+              continue;
+            }
+
+              const lines = text.split("\n").map(t=>t.trim()).filter(Boolean);
               for (const line of lines) {
                 const matches = [...line.matchAll(/\d+/g)];
                 for (const m of matches) {
