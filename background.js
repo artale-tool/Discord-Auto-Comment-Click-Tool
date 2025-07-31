@@ -56,17 +56,20 @@ function runScriptInTab(tabId, mode) {
         if (jumpBtn) {
           jumpBtn.click();
 
-          // 持續等待，直到 jumpBtn 消失 且 scroller 到最底
+          await delay(500);
+
+          // 持續等待，直到 jumpBtn 消失 且 沒在讀取
           await waitUntil(() => {
-            const stillBtn = document.querySelector('[class*="jumpToPresent"] [role="button"]');
-            const isAtBottom = Math.abs(scroller.scrollTop + scroller.clientHeight - scroller.scrollHeight) < 2;
-            return !stillBtn && isAtBottom;
+            const stillBtn = document.querySelector('[class*="jumpToPresentBar_"]');
+            const isLoading = document.querySelector('[class*="pointerCover"]');
+            return !stillBtn && !isLoading;
           });
 
         } else {
           
           // 沒有按鈕則移到最底部
           scroller.scrollTop = scroller.scrollHeight;
+
         }
 
 
@@ -102,6 +105,7 @@ function runScriptInTab(tabId, mode) {
 
             // 滑到底部
             await scrollToBottomUntilDone();
+            await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
 
             const rawMessages = [...document.querySelectorAll('li[id^="chat-messages-"]:not(:has([class*="systemMessage_"]))')];
             let msgs = rawMessages.slice(-10);
