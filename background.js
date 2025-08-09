@@ -46,6 +46,7 @@ function runScriptInTab(tabId, mode) {
       async function scrollToBottomUntilDone() {
 
         // 等待串文讀取完成
+        await waitUntil(() => document.querySelector('div[class*="iconWrapper"] > svg path[d^="M12 22a10 10 0 1 0-8.45"]'));
         await waitUntil(() => !document.querySelector('[class*="pointerCover"]'));
 
         const scroller = document.querySelector('[class*="scroller_"][class*="auto_"]');
